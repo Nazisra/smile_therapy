@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 import {
   Upload,
   AlertTriangle,
@@ -36,7 +36,7 @@ import axios from 'axios'
 import jsPDF from 'jspdf'
 import html2canvas from 'html2canvas'
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+const DEFAULT_API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
 const SEVERITY_CONFIG = {
   Mild: {
@@ -402,7 +402,157 @@ function AuthModal({ isOpen, onClose, initialTab = 'signin', onLoginSuccess }) {
   )
 }
 
-function Header({ currentUser, onOpenAuth, onLogout }) {
+function ServerConfigModal({ isOpen, onClose, currentUrl, onSaveUrl }) {
+  const [urlInput, setUrlInput] = useState(currentUrl)
+  const [testing, setTesting] = useState(false)
+  const [testResult, setTestResult] = useState(null)
+
+  useEffect(() => {
+    setUrlInput(currentUrl)
+    setTestResult(null)
+  }, [currentUrl, isOpen])
+
+  if (!isOpen) return null
+
+  const handleTest = async () => {
+    setTesting(true)
+    setTestResult(null)
+    const cleanUrl = urlInput.trim().replace(/\/+$/, '')
+    try {
+      const res = await axios.get(`${cleanUrl}/health`, { timeout: 8000 })
+      if (res.data && res.data.status === 'ok') {
+        setTestResult({
+          success: true,
+          message: `Connected! Device: ${res.data.device || 'CPU'} | DenseNet: Ready`,
+          data: res.data,
+        })
+      } else {
+        setTestResult({
+          success: false,
+          message: 'Server responded, but health status is not OK.',
+        })
+      }
+    } catch (err) {
+      setTestResult({
+        success: false,
+        message: err.response?.data?.detail || err.message || 'Cannot reach backend. Ensure your Google Colab tunnel or server is running.',
+      })
+    } finally {
+      setTesting(false)
+    }
+  }
+
+  const handleSave = () => {
+    const cleanUrl = urlInput.trim().replace(/\/+$/, '')
+    onSaveUrl(cleanUrl)
+    onClose()
+  }
+
+  const handleReset = () => {
+    const defaultUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+    setUrlInput(defaultUrl)
+    onSaveUrl(defaultUrl)
+    onClose()
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+      <div className="bg-white rounded-xl shadow-2xl border border-slate-200 max-w-md w-full overflow-hidden animate-in fade-in duration-200">
+        <div className="bg-[#201018] px-5 py-3.5 flex items-center justify-between text-white border-b border-rose-950/40">
+          <div className="flex items-center gap-2">
+            <Sliders className="w-4 h-4 text-rose-400" />
+            <h3 className="text-sm font-semibold tracking-tight">AI Backend Server Connection</h3>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-white text-lg leading-none p-1">
+            &times;
+          </button>
+        </div>
+
+        <div className="p-5 space-y-4 text-xs text-slate-700">
+          <div className="bg-rose-50/70 border border-rose-200/60 rounded p-3 text-[11px] leading-relaxed text-rose-900">
+            <strong>Running on Google Colab?</strong> Paste your Cloudflare Tunnel URL (e.g. <code className="bg-rose-100/80 px-1 py-0.5 rounded font-mono">https://xxxx.trycloudflare.com</code>) below. The model will run on Colab's GPU with 100% original accuracy.
+          </div>
+
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-700 uppercase tracking-wider mb-1.5">
+              Backend API Base URL
+            </label>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={urlInput}
+                onChange={(e) => setUrlInput(e.target.value)}
+                placeholder="https://xxxx.trycloudflare.com or http://localhost:8000"
+                className="flex-1 px-3 py-2 border border-slate-300 rounded text-xs font-mono focus:outline-none focus:ring-1 focus:ring-[#831843] focus:border-[#831843]"
+              />
+              <button
+                type="button"
+                onClick={handleTest}
+                disabled={testing || !urlInput.trim()}
+                className="px-3 py-2 bg-slate-800 hover:bg-slate-900 text-white font-medium rounded text-xs disabled:opacity-50 transition-colors flex items-center gap-1.5 shrink-0"
+              >
+                {testing && <RefreshCw className="w-3 h-3 animate-spin" />}
+                {testing ? 'Testing...' : 'Test'}
+              </button>
+            </div>
+          </div>
+
+          {testResult && (
+            <div
+              className={`p-2.5 rounded border text-[11px] flex items-start gap-2 ${
+                testResult.success
+                  ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                  : 'bg-rose-50 border-rose-200 text-rose-800'
+              }`}
+            >
+              {testResult.success ? (
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+              ) : (
+                <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+              )}
+              <div className="flex-1">
+                <span className="font-semibold block">{testResult.message}</span>
+                {testResult.data && (
+                  <span className="text-[10px] text-slate-500 font-mono mt-0.5 block">
+                    DenseNet-121: {testResult.data.densenet_loaded ? 'Ready' : 'Not Loaded'} | Device: {testResult.data.device}
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+
+          <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2">
+            <button
+              type="button"
+              onClick={handleReset}
+              className="text-[11px] text-slate-500 hover:text-slate-800 underline"
+            >
+              Reset to Default
+            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-3 py-1.5 border border-slate-300 text-slate-700 hover:bg-slate-50 rounded text-xs font-medium"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSave}
+                className="px-3.5 py-1.5 bg-[#831843] hover:bg-[#6F2140] text-white rounded text-xs font-semibold shadow-xs transition-colors"
+              >
+                Save & Apply
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function Header({ currentUser, onOpenAuth, onLogout, apiBaseUrl, onOpenServerModal }) {
   return (
     <header className="no-print bg-[#201018] text-white border-b border-[#351927] sticky top-0 z-40">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-2.5 flex items-center justify-between">
@@ -427,7 +577,21 @@ function Header({ currentUser, onOpenAuth, onLogout }) {
         </div>
 
         {/* Header Right: Auth & Node Controls */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2.5">
+          {/* AI Backend Server Status & Config */}
+          <button
+            onClick={onOpenServerModal}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded text-xs bg-white/5 hover:bg-white/10 border border-white/10 transition-colors text-slate-300"
+            title="Configure AI Backend Connection (Google Colab / Localhost)"
+          >
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="hidden sm:inline text-[10px] text-slate-400 font-medium">Backend:</span>
+            <span className="font-mono text-[11px] truncate max-w-[90px] sm:max-w-[140px] text-rose-200">
+              {apiBaseUrl ? apiBaseUrl.replace(/^https?:\/\//, '') : 'Colab/Local'}
+            </span>
+            <Sliders className="w-3 h-3 text-rose-300 ml-0.5" />
+          </button>
+
           {currentUser ? (
             <div className="flex items-center gap-2.5 bg-white/5 border border-white/10 rounded px-2.5 py-1">
               {currentUser.photo ? (
@@ -1270,6 +1434,10 @@ export default function App() {
   const [error, setError] = useState(null)
   const [authModalState, setAuthModalState] = useState({ isOpen: false, tab: 'signin' })
   const [currentUser, setCurrentUser] = useState(null)
+  const [apiBaseUrl, setApiBaseUrl] = useState(() => {
+    return localStorage.getItem('smile_backend_url') || DEFAULT_API_BASE
+  })
+  const [serverModalOpen, setServerModalOpen] = useState(false)
 
   const reportRef = useRef()
 
@@ -1284,7 +1452,7 @@ export default function App() {
       if (overrides) {
         Object.entries(overrides).forEach(([k, v]) => v !== undefined && form.append(k, v))
       }
-      const { data } = await axios.post(`${API_BASE}/api/analyze`, form, {
+      const { data } = await axios.post(`${apiBaseUrl}/api/analyze`, form, {
         headers: { 'Content-Type': 'multipart/form-data' },
         timeout: 120000,
       })
@@ -1294,7 +1462,7 @@ export default function App() {
     } finally {
       setLoading(false)
     }
-  }, [file])
+  }, [file, apiBaseUrl])
 
   const handleFileSelect = useCallback((f) => {
     setFile(f)
@@ -1364,6 +1532,18 @@ export default function App() {
         currentUser={currentUser}
         onOpenAuth={(tab) => setAuthModalState({ isOpen: true, tab })}
         onLogout={() => setCurrentUser(null)}
+        apiBaseUrl={apiBaseUrl}
+        onOpenServerModal={() => setServerModalOpen(true)}
+      />
+
+      <ServerConfigModal
+        isOpen={serverModalOpen}
+        onClose={() => setServerModalOpen(false)}
+        currentUrl={apiBaseUrl}
+        onSaveUrl={(newUrl) => {
+          localStorage.setItem('smile_backend_url', newUrl)
+          setApiBaseUrl(newUrl)
+        }}
       />
 
       <AuthModal
